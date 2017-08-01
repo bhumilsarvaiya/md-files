@@ -165,3 +165,329 @@ If the queue is currently quiet with no jobs being processed, there is nothing t
 To remedy this situation and to initiate processing of delayed jobs, the Queue Master review process completes by changing the State Document. This change is detected by all Queue objects connected to the same queue. If a Queue object detects a state update defined as reviewed, it will initiate a process restart function to query the database for more work.
 
 ___
+There are three state changes that occur within the queue:
+* __paused__
+* __active__
+* __reviewed__
+
+If a Queue object receives a ___paused___ global state update, it will change its own status to paused. This enables any Queue object to globally pause the queue.
+
+If a Queue object receives an ___active___ global state update, it will resume processing if paused. This enables any Queue object to globally resume the queue processing.
+
+When a Queue Master completes the queue ___review___ process it updates the State Document to a state of ___reviewed___. All Queue objects connected to the queue will restart processing if their running job count is less than their concurrency value.
+___
+`This example shows how to cancel more than one job.`
+```javascript
+const Queue = require('rethinkdb-job-queue')
+const q = new Queue()
+const jobs = [q.createJob(), q.createJob()]
+// The jobs array will contain 2 jobs
+// Don't forget to decorate your jobs with job data
+
+q.addJob(jobs).then((savedJobs) => {
+  // savedJobs is an array of a 2 job objects
+  return q.cancelJob(savedJobs)
+}).then((cancelledJobIds) => {
+  // If you need the cancelled job ids for any reason, here they are
+  console.dir(cancelledJobIds)
+}).catch(err => console.error(err))
+```
+
+`This example shows how to cancel one job.`
+```javascript
+const Queue = require('rethinkdb-job-queue')
+const q = new Queue()
+const job = q.createJob()
+// Decorate your job with job data for processing here
+
+q.addJob(job).then((savedJobs) => {
+  // savedJobs is an array of a single job object
+  return q.cancelJob(savedJobs)
+}).then((cancelledJobIds) => {
+  // If you need the cancelled job id for any reason, here it is
+  console.dir(cancelledJobIds)
+}).catch(err => console.error(err))
+```
+
+`IN PROCESS FILE`
+```javascript
+q.process((job, next, onCancel) => {
+    onCancel(job, () => {
+        //code
+    })
+})
+```
+___
+# Job Options
+Option | Type | Default
+:---: | :---: | :---:
+name | String | uuid same as the Job id
+priority | String | normal
+timeout | Integer | 300000 ms (5 min)
+retryMax | Integer | 3
+retryDelay | Integer | 600000 ms (10 min)
+repeat | Bool/Int | false
+repeatDelay | Integer | 300000 ms (5 min)
+dateEnable | Date | new Date()
+
+**Methods**
+* Job.setName
+* Job.setPriority
+* Job.setTimeout
+* Job.setRetryMax
+* Job.setRetryDelay
+* Job.setDateEnable
+* Set the property directly on the job
+
+### Job Schema
+`dateCreated:` The date is added when the job is created and should never change.
+`dateEnable:` Jobs will not be processed until the current date is past this date.
+`dateFinished:` Records the date when a job completes, fails, gets cancelled, or is terminated.
+`dateStarted:` The date the job processing was last started. It may be a retry start date.
+`id:` The document id within the RethinkDB database.
+`log:` An array of log entries created from within the Queue object or by using Job.addLog.
+`name:` A string value used to identify the job. See the Job Name document for more detail.
+`priority:` A number representing the processing order of the jobs.
+`processCount:` The number of times the job has been processed or attempted to be processed.
+`progress:` The user reported progress for the job. Updated with Job.updateProgress.
+`queueId:` A string representing the Queue object that last updated the job in the database.
+`repeat:` Whether the job will repeat.
+`repeatDelay:` The delay between repeats.
+`retryCount:` A record of the number of retry attempts the job has had.
+`retryDelay:` The time delay in milliseconds before failed jobs will be retried.
+`retryMax:` The maximum number of retries before the job is terminated.
+`status:` The current status of the job.
+`timeout:` How long the job can be processed for before it is considered failed.
+
+### Job name Option
+`Warning:` Setting the job name is not guaranteed to be unique. Use the Job.id for unique identification.
+The benefit of the name property is that it is backed by an index within the database.
+This makes finding named jobs and testing job existence faster with less load on the database.
+```javascript
+let job = q.createJob().setName('Batman')
+```
+
+### Job priority Option
+Name | Number | Description
+:---: | :---: | :---:
+lowest | 60 | The last jobs to get processed
+low | 50 | Not as important as a typical job
+normal | 40 | The default job priority
+medium | 30 | For more important jobs
+high | 20 | Need to be processed first
+highest | 10 | These jobs will be processed before all others
+
+```javascript
+let job = q.createJob().setPriority('high')
+```
+
+### Job timeout Option
+The job ___timeout___ option is for defining the maximum time a job should be processed for before getting classified as ___failed___.
+`Note:` There are two ways a job will be considered a failed job using this timeout option; if the Queue object **job processing takes too long and runs past the timeout value**, or if the **nodejs process hangs or crashes.**
+```javascript
+let job = q.createJob().setTimeout(600000)
+```
+
+### Job retryMax Option
+If the ___retryMax___ value of a job is greater than zero, then it will be retried if the job processing fails.
+Setting the ___retryMax___ value to ___0___ will disable retries.
+Setting the ___retryMax___ option to ___n___ will mean the job will get processed ___n+1___ times. As above, once for the first try, then ___n___ retries.
+
+```javascript
+let job = q.createJob().setRetryMax(1)
+```
+
+### Job retryDelay Option
+The ___retryDelay___ option allows you to progressively delay the job processing on successive retries.
+```javascript
+let job = q.createJob().setRetryDelay(1000000)
+```
+
+### Job repeat Option
+The ___repeat___ option allows you to repeat processing of a job.
+```javascript
+let job = q.createJob().setRepeat(3)
+```
+
+### Job repeatDelay Option
+The ___repeatDelay___ option allows you to delay repeat processing of a job.
+**e.g.**
+The below example sets the repeat value to 3 and updates the repeatDelay to 24 hours. This will cause the job to be processed a total of 4 times; once for the original processing with three repeats with a 24 hour delay between:
+```javascript
+let job = q.createJob().setRepeat(3).setRepeatDelay(86400000)
+```
+
+### Job dateEnable Option
+The job will be processed only after the current date is past the ___dateEnable___ value.
+We don't need to change this option if we are happy for the job to be processed as soon as possible. If we wish to delay the job processing until a future date, change this option.
+```javascript
+let job = q.createJob().setDateEnable(new Date() + 1000000)
+```
+___
+## Job Retry
+When creating job objects we can configure the ___timeout___, ___retryMax___, and ___retryDelay___ options. These options will determine what will happen if a job fails either by a Node.js process not responding or the job process failing.
+
+Every job has a property called ___dateEnable___ which is used to determine if the job is ready for processing. The ___dateEnable___ value is set when the job is created and when it is retrieved from the database for processing. The retrieval query will not return jobs where the dateEnable value is greater than the current date time value.
+
+Currently the formula used to set the ___dateEnable___ value during the job retrieval process is:
+`now() + job.timeout + ( job.retryDelay * job.retryCount )`
+
+The plan in the future is to move this to an exponential formula once RethinkDB has a power function.
+
+`Note:` In the below step through I am stating that the queue review process is re-activating the jobs after failure. This may not be the case with an active queue. If the Queue object is constantly working on jobs then the jobs will be activated as soon as the time is right.
+
+If we take the job properties and the Queue Master ___'masterInterval'___ value, then the following sequence of events will occur:
+1. The job has never been processed and has default properties. It has been added to the queue.
+`status = 'waiting'`
+`timeout = 300000`
+`retryCount = 0`
+`retryMax = 3`
+`retryDelay = 600000`
+`dateEnable = dateCreated`
+2. The job is retrieved from the database setting the dateEnable value.
+`status = 'active'`
+`timeout = 300000`
+`retryCount = 0`
+`retryMax = 3`
+`retryDelay = 600000`
+`dateEnable = now() + timeout`
+3.The job fails for some reason.
+`status = 'failed'`
+`timeout = 300000`
+`retryCount = 1`
+`retryMax = 3`
+`retryDelay = 600000`
+`dateEnable = now() + (retryDelay * retryCount)`
+4. The job remains inactive within the database until after dateEnable or approximately 600000 milliseconds (i.e. retryDelay * retryCount).
+5. The Queue Master database review is initiated and the job is retrieved from the database for the first retry.
+`status = 'active'`
+`timeout = 300000`
+`retryCount = 1`
+`retryMax = 3`
+`retryDelay = 600000`
+`dateEnable = now() + timeout + (retryDelay * retryCount)`
+6. The job fails again for some reason.
+`status = 'failed'`
+`timeout = 300000`
+`retryCount = 2`
+`retryMax = 3`
+`retryDelay = 600000`
+`dateEnable = now() + (retryDelay * retryCount)`
+7. The job remains inactive within the database until after dateEnable or approximately 1200000 milliseconds (i.e. retryDelay * retryCount).
+8. The Queue Master database review is initiated and the job is retrieved from the database for the second retry.
+`status = 'active'`
+`timeout = 300000`
+`retryCount = 2`
+`retryMax = 3`
+`retryDelay = 600000`
+`dateEnable = now() + timeout + (retryDelay * retryCount)`
+9. The job fails again. What is wrong with this job?
+`status = 'failed'`
+`timeout = 300000`
+`retryCount = 3`
+`retryMax = 3`
+`retryDelay = 600000`
+`dateEnable = now() + (retryDelay * retryCount)`
+10. The job remains inactive within the database until after dateEnable or approximately 1800000 milliseconds.
+11. The Queue Master database review is initiated and the job is retrieved from the database for the third and final retry.
+`status = 'active'`
+`timeout = 300000`
+`retryCount = 3`
+`retryMax = 3`
+`retryDelay = 600000`
+`dateEnable = now + timeout + (retryDelay * retryCount)` this is redundant however still set
+12. The job fails for the last time.
+`status = 'terminated'`
+13. Because the job status is set to terminated it will no longer be retrieved from the database.
+
+___
+## Job Repeat
+When we create a Job object we can set the ___repeat___ and the ___repeatDelay___ options. These allow us to repeat the processing of jobs either for ___a fixed number of times or continuously.___
+
+By setting the ___repeat___ option to ___true___ the job will continually repeat after waiting for the ___repeatDelay___ time period. Alternatively, you can set the ___repeat___ option to a ___number___ and the job will be processed and then repeated the correct number of times.
+
+If a job fails processing and has the ___retry___ options enabled, the job will follow the normal retry procedure. If the retries fail instead of transitioning to a terminated status, the job goes into a waiting status and the ___retryDelay___ will apply.
+
+`Note:`  If the queue is not working hard the repeated processing of jobs will require the Queue Master review process to begin processing the job after the Job.repeatDelay time period.
+`Note:` Consider setting the Queue option limitJobLogs to a smaller number than the default 1000 log entries.
+`Warning:` Do not set the retryDelay value too low unless the repeated job takes a long time to run. 
+
+___
+## Job Status
+Status | Description
+:---: | :---:
+created | After creating the job
+waiting | After being added to the queue
+active | Whilst the job is being processed
+completed | When the job has been processed successfully
+cancelled | If you cancel a job
+failed | When the job has failed being processed
+terminated  When a job has failed and will not be retried
+
+___
+## Job Editing
+One of the most powerful and flexible methods within rethinkdb-job-queue is the **Job.update** method.
+It allows us, without restriction, to change any value of a job and save those changes back to the queue database.
+### Job Data Changes
+If for some reason we need to change the data associated with a job we can do so with the following code.
+For this example we need to change the job.data property from foo to bar.
+
+Assumptions:
+* The job is in the queue.
+* The job has not been processed.
+* The job.data property is set to foo.
+* We have the job id.
+
+```javascript
+q.getJob('5127d082-fe7e-4e88-b1de-7093029695c3').then((savedJobs) => {
+  savedJobs[0].data = 'bar'
+  return savedJobs[0].update()
+}).catch(err => console.error(err))
+```
+### Removing Job Data
+If for some reason we had extra data saved with a job and we need it removed for some security reason. We could do so easily enough as this example shows.
+
+Assumptions:
+* The job is in the queue.
+* The job.secret property is set.
+* We have the job id.
+
+```javascript
+q.getJob('5127d082-fe7e-4e88-b1de-7093029695c3').then((savedJobs) => {
+  delete savedJobs[0].secret
+  return savedJobs[0].update()
+}).catch(err => console.error(err))
+```
+### Disable Job
+If we had a job waiting for processing and we need to disable the job until further notice, here is one way we could achieve this.
+
+Assumptions:
+* The job is in the queue.
+* The job has not been processed.
+* We have the job id.
+
+```javascript
+q.getJob('5127d082-fe7e-4e88-b1de-7093029695c3').then((savedJobs) => {
+  delete savedJobs[0].status = 'disabled'
+  return savedJobs[0].update()
+}).catch(err => console.error(err))
+```
+>The example above is setting the Job.status property to disabled which is an invalid status. By setting the status to an invalid value, the internal getNextJob() method will not retrieve the job; hence it is disabled.
+
+___
+## Queue.summary
+```javascript
+q.summary().then((summary) => {
+  console.dir(summary)
+}).catch(err => console.error(err))
+```
+This is a simple queue summary of job status numbers stored in the queue backing table. The resulting object will look like this:
+```
+{ waiting: 11,
+  active: 30,
+  completed: 9721,
+  cancelled: 4,
+  failed: 1,
+  terminated: 0,
+  total: 9767 }
+```
