@@ -501,7 +501,7 @@ active | Whilst the job is being processed
 completed | When the job has been processed successfully
 cancelled | If you cancel a job
 failed | When the job has failed being processed
-terminated  When a job has failed and will not be retried
+terminated | When a job has failed and will not be retried
 
 ___
 ## Job Editing
