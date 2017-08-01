@@ -1,5 +1,4 @@
 # Queue Constructor
-___
 ### Default Options
 ```javascript
 const Queue = require('rethinkdb-job-queue')
