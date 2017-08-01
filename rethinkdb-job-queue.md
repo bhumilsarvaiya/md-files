@@ -1,5 +1,4 @@
 # Queue Constructor
-___
 ### Default Options
 ```javascript
 const Queue = require('rethinkdb-job-queue')
@@ -165,6 +164,7 @@ If the queue is currently quiet with no jobs being processed, there is nothing t
 To remedy this situation and to initiate processing of delayed jobs, the Queue Master review process completes by changing the State Document. This change is detected by all Queue objects connected to the same queue. If a Queue object detects a state update defined as reviewed, it will initiate a process restart function to query the database for more work.
 
 ___
+<<<<<<< HEAD
 There are three state changes that occur within the queue:
 * __paused__
 * __active__
@@ -491,3 +491,5 @@ This is a simple queue summary of job status numbers stored in the queue backing
   terminated: 0,
   total: 9767 }
 ```
+=======
+>>>>>>> bcc710d0bb9bac95664fcf2da52d2c140938c8d9
