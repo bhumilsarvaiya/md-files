@@ -239,23 +239,41 @@ dateEnable | Date | new Date()
 * Set the property directly on the job
 
 ### Job Schema
+
 `dateCreated:` The date is added when the job is created and should never change.
+
 `dateEnable:` Jobs will not be processed until the current date is past this date.
+
 `dateFinished:` Records the date when a job completes, fails, gets cancelled, or is terminated.
+
 `dateStarted:` The date the job processing was last started. It may be a retry start date.
+
 `id:` The document id within the RethinkDB database.
+
 `log:` An array of log entries created from within the Queue object or by using Job.addLog.
+
 `name:` A string value used to identify the job. See the Job Name document for more detail.
+
 `priority:` A number representing the processing order of the jobs.
+
 `processCount:` The number of times the job has been processed or attempted to be processed.
+
 `progress:` The user reported progress for the job. Updated with Job.updateProgress.
+
 `queueId:` A string representing the Queue object that last updated the job in the database.
+
 `repeat:` Whether the job will repeat.
+
 `repeatDelay:` The delay between repeats.
+
 `retryCount:` A record of the number of retry attempts the job has had.
+
 `retryDelay:` The time delay in milliseconds before failed jobs will be retried.
+
 `retryMax:` The maximum number of retries before the job is terminated.
+
 `status:` The current status of the job.
+
 `timeout:` How long the job can be processed for before it is considered failed.
 
 ### Job name Option
@@ -329,6 +347,7 @@ When creating job objects we can configure the ___timeout___, ___retryMax___, an
 Every job has a property called ___dateEnable___ which is used to determine if the job is ready for processing. The ___dateEnable___ value is set when the job is created and when it is retrieved from the database for processing. The retrieval query will not return jobs where the dateEnable value is greater than the current date time value.
 
 Currently the formula used to set the ___dateEnable___ value during the job retrieval process is:
+
 `now() + job.timeout + ( job.retryDelay * job.retryCount )`
 
 The plan in the future is to move this to an exponential formula once RethinkDB has a power function.
@@ -337,66 +356,127 @@ The plan in the future is to move this to an exponential formula once RethinkDB 
 
 If we take the job properties and the Queue Master ___'masterInterval'___ value, then the following sequence of events will occur:
 1. The job has never been processed and has default properties. It has been added to the queue.
+
 `status = 'waiting'`
+
 `timeout = 300000`
+
 `retryCount = 0`
+
 `retryMax = 3`
+
 `retryDelay = 600000`
+
 `dateEnable = dateCreated`
+
 2. The job is retrieved from the database setting the dateEnable value.
+
 `status = 'active'`
+
 `timeout = 300000`
+
 `retryCount = 0`
+
 `retryMax = 3`
+
 `retryDelay = 600000`
+
 `dateEnable = now() + timeout`
+
 3.The job fails for some reason.
+
 `status = 'failed'`
+
 `timeout = 300000`
+
 `retryCount = 1`
+
 `retryMax = 3`
+
 `retryDelay = 600000`
+
 `dateEnable = now() + (retryDelay * retryCount)`
+
 4. The job remains inactive within the database until after dateEnable or approximately 600000 milliseconds (i.e. retryDelay * retryCount).
+
 5. The Queue Master database review is initiated and the job is retrieved from the database for the first retry.
+
 `status = 'active'`
+
 `timeout = 300000`
+
 `retryCount = 1`
+
 `retryMax = 3`
+
 `retryDelay = 600000`
+
 `dateEnable = now() + timeout + (retryDelay * retryCount)`
+
 6. The job fails again for some reason.
+
 `status = 'failed'`
+
 `timeout = 300000`
+
 `retryCount = 2`
+
 `retryMax = 3`
+
 `retryDelay = 600000`
+
 `dateEnable = now() + (retryDelay * retryCount)`
+
 7. The job remains inactive within the database until after dateEnable or approximately 1200000 milliseconds (i.e. retryDelay * retryCount).
+
 8. The Queue Master database review is initiated and the job is retrieved from the database for the second retry.
+
 `status = 'active'`
+
 `timeout = 300000`
+
 `retryCount = 2`
+
 `retryMax = 3`
+
 `retryDelay = 600000`
+
 `dateEnable = now() + timeout + (retryDelay * retryCount)`
+
 9. The job fails again. What is wrong with this job?
+
 `status = 'failed'`
+
 `timeout = 300000`
+
 `retryCount = 3`
+
 `retryMax = 3`
+
 `retryDelay = 600000`
+
 `dateEnable = now() + (retryDelay * retryCount)`
+
 10. The job remains inactive within the database until after dateEnable or approximately 1800000 milliseconds.
+
 11. The Queue Master database review is initiated and the job is retrieved from the database for the third and final retry.
+
 `status = 'active'`
+
 `timeout = 300000`
+
 `retryCount = 3`
+
 `retryMax = 3`
+
 `retryDelay = 600000`
+
 `dateEnable = now + timeout + (retryDelay * retryCount)` this is redundant however still set
+
 12. The job fails for the last time.
+
 `status = 'terminated'`
+
 13. Because the job status is set to terminated it will no longer be retrieved from the database.
 
 ___
